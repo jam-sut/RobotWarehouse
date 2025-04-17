@@ -1,3 +1,4 @@
+import customexceptions
 import order
 import entitywithinventory
 import udptransmit
@@ -9,6 +10,7 @@ class OrderStation(entitywithinventory.InventoryEntity):
         self._x = x_pos
         self._y = y_pos
         self._currentOrder = None
+        self._last_robot_interacted = None
         super().__init__(name, math.inf)
 
     def transmit_creation(self):
@@ -24,11 +26,22 @@ class OrderStation(entitywithinventory.InventoryEntity):
             return False
 
     def interact(self, obj):
-        print("Goal has %s before" % self._inventory)
-        self.receive_inventory(obj.transfer_inventory())
-        print("Goal has %s now" % self._inventory)
+        recieved = obj.transfer_inventory()
+        print("Order station %s recieved %s" % (self.get_name(), recieved))
+        print("Already had %s" % self._inventory)
+        self._last_robot_interacted = obj.get_name()
+        if len(recieved) == 0:
+            raise customexceptions.SimulationError("INVENTORY SIZE zero transferred")
+        self.receive_inventory(recieved)
+
     def get_position(self):
         return self._x, self._y
+
+    def get_name_last_robot(self):
+        return self._last_robot_interacted
+
+    def get_name(self):
+        return self._name
 
     def __repr__(self):
         return self._name

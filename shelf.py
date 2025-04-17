@@ -10,7 +10,7 @@ class Shelf:
         self._name = name
 
     def transmit_creation(self):
-        udptransmit.transmit_shelf_creation(self._name, "GOOBY", self._x, self._y, )
+        udptransmit.transmit_shelf_creation(self._name, self._item.get_name(), self._x, self._y, )
 
     def interact(self, obj):
         obj.add_item_to_inventory(self._item)

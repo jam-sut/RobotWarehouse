@@ -7,7 +7,8 @@ commands = {}
 
 
 def send_udp_message(message: str):
-    if os.environ["ROBOTSIM_TRANSMIT"] == "TRUE":
+    if os.environ["ROBOTSIM_TRANSMIT"] == "True":
+        print("sending")
         SOCK.sendto(bytes(message, "utf-8"), (IP, PORT))
 
 
@@ -41,8 +42,8 @@ def transmit_goal_creation(name: str, x: int, y: int):
     send_udp_message(message)
 
 
-def transmit_item_existence(name: str, item_dep: int):
-    message = '{"command":"ITEM", "itemName":"%s", "posX":%s}' % (name, item_dep)
+def transmit_item_existence(name: str):
+    message = '{"command":"ITEM", "itemName":"%s"}' % name
     send_udp_message(message)
 
 
@@ -59,6 +60,24 @@ def transmit_item_lost(objname: str, item_name: str):
 def transmit_clear_inventory(objname: str):
     message = '{"command":"CLEARINV", "objName":"%s"}' % objname
     send_udp_message(message)
+
+
+def transmit_order_create(orderid: int, prio:int, items:list[str]):
+    item_string = ""
+    for item in items:
+        item_string += item
+        item_string += "|"
+    item_string = item_string[:-1]
+    message = '{"command":"ORDERCREATE", "objName":"%s", "posX":"%s", "itemName":"%s"}' % (orderid, prio, item_string)
+    send_udp_message(message)
+
+def transmit_order_active(orderid:int):
+    message = '{"command":"ORDERACTIVE", "objName":"%s"}'
+
+def transmit_order_complete(orderid: int):
+    message = '{"command":"ORDERCOMPLETE", "objName":"%s"}' % orderid
+    send_udp_message(message)
+
 
 
 
