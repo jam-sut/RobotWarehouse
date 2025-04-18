@@ -20,17 +20,20 @@ if __name__ == "__main__":
     orders_1 = []
 
     faulted_sims = 0
+    faulty = [0, 0, 0, 0.01]
+    perfect_scenario = [0, 0, 0, 0]
 
-    for i in range(1000):
+    for i in range(50):
         sim = warehouse.Warehouse("whouse.txt", 10, 3,
-                                  "simple")
+                                  "simple", faulty, True, 200)
         continue_step = True
         skip = False
         while continue_step:
             t1 = time.perf_counter_ns()
             try:
                 continue_step = not sim.step()
-            except:
+                print("continue was %s" % continue_step)
+            except Exception as e:
                 faulted_sims += 1
                 skip = True
                 break
@@ -45,6 +48,7 @@ if __name__ == "__main__":
         orders_1 = orders_1 + sim.get_order_manager().return_mapping_prio_to_completion_times()
         print("completed sim %s" % i)
 
+    '''
     step_times_2 = []
     step_amounts_2 = []
     orders_2 = []
@@ -85,12 +89,12 @@ if __name__ == "__main__":
 
         print("Average amount of steps for prio %s completion: simple: %s,  simple-interrupt: %s" % (i+1, statistics.mean(times_1[i]), statistics.mean(times_2[i])))
 
-
+'''
     #print("Max step time %sns, Min step time %sns" % (max(step_times), min(step_times)))
     #print("Mean step time %0.2fns" % statistics.mean(step_times))
 
     print("Average amount of steps for simple, %s" % statistics.mean(step_amounts_1))
-    print("Average amount of steps for simple-interrupt, %s" % statistics.mean(step_amounts_2))
+    #print("Average amount of steps for simple-interrupt, %s" % statistics.mean(step_amounts_2))
     print("%s SIMS BROKE" % faulted_sims)
 
 

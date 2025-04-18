@@ -9,7 +9,9 @@ import pygad
 
 
 class Scheduler:
-    def __init__(self, robots: dict, shelves: dict, goals: dict, homes:dict, init_orders: list, schedule_mode:str):
+    def __init__(self, robots: dict, shelves: dict, goals: dict, homes:dict, init_orders: list, schedule_mode:str,
+                 fault_tolerant_mode: bool):
+        self._fault_tolerant_mode = fault_tolerant_mode
         self._robots = robots
         self._num_robots = len(robots.keys())
         self._shelves = shelves
@@ -105,17 +107,17 @@ class Scheduler:
                                num_parents_mating=num_parents_mating,
                                mutation_by_replacement=True)
 
-        ga_instance.run()
+        #ga_instance.run()
 
 
-        solution, solution_fitness, solution_idx = ga_instance.best_solution()
-        print("best:")
-        for gene in solution:
-            print(gahandler.decode_utf8_int_to_string(gene))
+        #solution, solution_fitness, solution_idx = ga_instance.best_solution()
+        #print("best:")
+        #for gene in solution:
+        #    print(gahandler.decode_utf8_int_to_string(gene))
 
-        ga_instance.plot_fitness()
+        #ga_instance.plot_fitness()
 
-        raise Exception("break")
+        #raise Exception("break")
 
 
     def schedule(self):
@@ -124,6 +126,10 @@ class Scheduler:
         elif self._schedule_mode == "simple-interrupt":
             self.single_interrupt_robot_schedule()
 
+    def get_items_already_delivered_for_order(self, order):
+        order_goal_name = self._order_goal_assignment[order.get_id()]
+        order_goal = self._goals[order_goal_name]
+        return order_goal.report_inventory()
 
     def simple_single_robot_schedule(self, single_item_mode=False):
         break_outer_loop = False

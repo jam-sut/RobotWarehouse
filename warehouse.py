@@ -1,3 +1,4 @@
+import math
 import random
 
 import customexceptions
@@ -15,7 +16,10 @@ import time
 from dataclasses import dataclass, field
 
 class Warehouse:
-    def __init__(self, w_house_filename: str, num_items: int, robot_max_inventory: int, schedule_mode: str):
+    def __init__(self, w_house_filename: str, num_items: int, robot_max_inventory: int, schedule_mode: str,
+                 robot_fault_rates: list[float], fault_tolerant_mode, step_limit: int):
+        self._fault_tolerant_mode = fault_tolerant_mode
+
         self._current_orders = []
         self._cells = []
         self._robots = {}
@@ -23,12 +27,14 @@ class Warehouse:
         self._shelves = {}
         self._homes = {}
 
-        self._items = {}
-        self._NUMITEMS = num_items
-        udptransmit.transmit_start()
-        self.generate_items(self._NUMITEMS)
+        self._robot_fault_rates = robot_fault_rates
 
-        self._order_manager = ordermanager.OrderManager(5, 5, self._items)
+        self._items = {}
+        self._NUM_ITEMS = num_items
+        udptransmit.transmit_start()
+        self.generate_items(self._NUM_ITEMS)
+
+        self._order_manager = ordermanager.OrderManager(5, 6, self._items)
 
         self._robot_max_inventory = robot_max_inventory
         # Warehouse cell (x,y) is accessed via self._cells[y][x]
@@ -36,7 +42,7 @@ class Warehouse:
 
         self._scheduler = scheduler.Scheduler(self._robots, self._shelves, self._order_stations,
                                               self._homes, self._order_manager.get_init_orders(),
-                                              schedule_mode)
+                                              schedule_mode, self._fault_tolerant_mode)
         self._scheduler.schedule()
 
         self._width = len(self._cells[0])
@@ -44,17 +50,22 @@ class Warehouse:
 
         self.transmit_initial_warehouse_layout()
         self._total_steps = 0
+        self._step_limit = step_limit
+
+        self.sensor_faulty_bots = {}
 
     def step(self):
         self._total_steps = self._total_steps + 1
 
-        if (self._total_steps > 250):
-            for goal in self._order_stations:
-                print(self._order_stations[goal]._inventory)
-
+        if self._total_steps > self._step_limit:
             raise customexceptions.SimulationError("Simulation still running after step limit")
 
+        # ============================================UPDATE ROBOTS====================================================
         for robot_obj in self._robots.values():
+            # Apply any faults
+            fault_list = robot_obj.maybe_introduce_fault()
+            self.apply_fault_actions(robot_obj, fault_list)
+
             # Robots should only take action if they are not waiting
             if robot_obj.get_wait_steps() == 0:
                 print("Updating robot %s" % robot_obj.get_name())
@@ -63,36 +74,62 @@ class Warehouse:
                 print("Robot %s waited a step" % robot_obj.get_name())
                 robot_obj.decrement_wait_steps()
 
-        self.print_layout_simple()
-
-        for station in self._order_stations.values():
-            if self._scheduler.is_this_a_complete_order(station.report_inventory(), station, self._order_manager,
-                                                        self._total_steps):
-                station.clear_inventory()
-
+        # ============================================ADD DYNAMIC ORDERS==============================================
         new_order = self._order_manager.possibly_introduce_dynamic_order(self._total_steps)
         if new_order is not None:
             print("INTRODUCING A NEW ORDER ON STEP %s" % self._total_steps)
             self._scheduler.add_order(new_order)
 
+        # ============================================DISPLAY LAYOUT==================================================
+        self.print_layout_simple()
+
         return self._scheduler.are_all_orders_complete()
+
+    def apply_fault_actions(self, robot_obj: robot.Robot, fault_list):
+        if not fault_list:
+            return
+        if fault_list[0]:
+            robot_obj.set_wait_steps(math.inf)
+        if fault_list[1]:
+            robot_obj.set_target(self._homes["home%s" % robot_obj.get_name()[5:]])
+            robot_obj.apply_charge_wait_upon_reaching_home = True
+        if fault_list[2]:
+            robot_obj.set_wait_steps(20)
+        if fault_list[3]:
+            self.sensor_faulty_bots[robot_obj.get_name()] = robot_obj
 
     def get_total_steps(self):
         return self._total_steps
 
-    def cell_is_full(self, x, y):
-        return ("robot" in "".join(self._cells[y][x])) or ("wall" in "".join(self._cells[y][x]))
+    def is_within_grid(self, x, y):
+        return (0 <= x <= self._width - 1) and (0 <= y <= self._height - 1)
 
-    def get_robots(self):
-        return self._robots
+    def get_scheduler(self):
+        return self._scheduler
 
     def get_order_manager(self):
         return self._order_manager
 
+    def cell_is_full(self, x, y):
+        simple_check = ("robot" in "".join(self._cells[y][x])) or ("wall" in "".join(self._cells[y][x]))
+        is_not_near_faulty_robot = True
+
+        if self._fault_tolerant_mode:
+            for faulty_robot_name, faulty_robot in self.sensor_faulty_bots.items():
+                pos = faulty_robot.get_position()
+                possible_next_positions = [(pos[0] + 1, pos[1]),
+                                           (pos[0] - 1, pos[1]),
+                                           (pos[0], pos[1] + 1),
+                                           (pos[0], pos[1] - 1)]
+                if (x, y) in possible_next_positions:
+                    is_not_near_faulty_robot = False
+                    break
+        return simple_check and is_not_near_faulty_robot
+
     def decide_robot_action(self, robot_obj):
         if robot_obj.get_target() is not None:
             # If the robot is traveling towards its home, it should still be treated as idle and available to schedule
-            if type(robot_obj.get_target()) is robothome.RobotHome:
+            if type(robot_obj.get_target()) is robothome.RobotHome and not robot_obj.battery_faulted:
                 # Check if the scheduler has a new job for this robot yet
                 self._scheduler.direct_robot(robot_obj)
 
@@ -105,20 +142,6 @@ class Warehouse:
 
         else:
             self._scheduler.direct_robot(robot_obj)
-
-    def move_robot_towards_naive(self, robot_obj):
-        robot_x, robot_y = robot_obj.get_position()
-        target_x, target_y = robot_obj.get_target.get_position()
-        if robot_x != target_x:
-            if robot_x < target_x:
-                self.update_robot_position_obj(robot_obj, robot_x, robot_y, robot_x + 1, robot_y)
-            elif robot_x > target_x:
-                self.update_robot_position_obj(robot_obj, robot_x, robot_y, robot_x - 1, robot_y)
-        elif robot_y != target_y:
-            if robot_y < target_y:
-                self.update_robot_position_obj(robot_obj, robot_x, robot_y, robot_x, robot_y + 1)
-            else:
-                self.update_robot_position_obj(robot_obj, robot_x, robot_y, robot_x, robot_y - 1)
 
     def move_robot_towards_astar_collision_detect(self, robot_obj):
         # If the robot has no planned path when we ask it to move, it should try and compute one
@@ -137,7 +160,8 @@ class Warehouse:
                 can_move = False
 
         # If we have a next position after the end of this, and the robot can move, it should move to it
-        if can_move and (potential_next_position is not None):
+        # If the robots sensors have faulted, it couldn't figure out whether it can move or not, so it will just move.
+        if (can_move or robot_obj.sensors_faulted) and (potential_next_position is not None):
             self.move_robot_next_path_spot(robot_obj)
             return
 
@@ -299,9 +323,6 @@ class Warehouse:
         if not result:
             print("couldnt fix")
 
-    def is_within_grid(self, x, y):
-        return (0 <= x <= self._width - 1) and (0 <= y <= self._height - 1)
-
     def compute_robot_astar_path(self, robot_obj):
         robot_x, robot_y = robot_obj.get_position()
         target_x, target_y = robot_obj.get_target().get_position()
@@ -326,7 +347,7 @@ class Warehouse:
             current = heapq.heappop(search_frontier)
             if current.x == target_x and current.y == target_y:
                 # We don't need the first element of the path, that's where we already are
-                return self.reconstruct_path(came_from, (current.x, current.y))[1:]
+                return utils.reconstruct_astar_path(came_from, (current.x, current.y))[1:]
 
             offsets = [(current.x + 1, current.y),
                        (current.x - 1, current.y),
@@ -335,7 +356,7 @@ class Warehouse:
 
             # Search each neighbour
             for n in offsets:
-                if not ((0 <= n[0] <= self._width - 1) and (0 <= n[1] <= self._height - 1)):
+                if not self.is_within_grid(n[0], n[1]):
                     continue
                 neigh_tup = (n[0], n[1])
                 cur_tup = (current.x, current.y)
@@ -352,13 +373,6 @@ class Warehouse:
                         heapq.heappush(search_frontier,
                                        PrioNode(n[0], n[1], f_scores[neigh_tup]))
         return []
-
-    def reconstruct_path(self, came_from: dict, current):
-        total_path = [current]
-        while current in came_from.keys():
-            current = came_from[current]
-            total_path.insert(0, current)
-        return total_path
 
     def transmit_initial_warehouse_layout(self):
         udptransmit.transmit_warehouse_size(self._width, self._height)
@@ -405,7 +419,6 @@ class Warehouse:
         shelf_name_ctr = 0
         goal_name_ctr = 0
         row_ctr = 0
-        col_ctr = 0
 
         prev_width = None
 
@@ -429,7 +442,8 @@ class Warehouse:
             for char in line:
                 if char == "R":
                     new_robot_name = "robot%s" % robot_name_ctr
-                    new_robot = robot.Robot(new_robot_name, col_ctr, row_ctr, self._robot_max_inventory, [0, 0, 0])
+                    new_robot = robot.Robot(new_robot_name, col_ctr, row_ctr, self._robot_max_inventory,
+                                            self._robot_fault_rates)
                     self._robots[new_robot_name] = new_robot
 
                     new_home_name = "home%s" % robot_name_ctr
@@ -452,7 +466,7 @@ class Warehouse:
                     shelf_name_ctr = shelf_name_ctr + 1
                 elif char == "G":
                     new_goal_name = "goal%s" % goal_name_ctr
-                    new_goal = orderstation.OrderStation(col_ctr, row_ctr, new_goal_name)
+                    new_goal = orderstation.OrderStation(col_ctr, row_ctr, new_goal_name, self)
                     self._order_stations[new_goal_name] = new_goal
 
                     cells_copy[row_ctr].append([new_goal_name])
@@ -463,7 +477,7 @@ class Warehouse:
                     cells_copy[row_ctr].append([])
                 col_ctr = col_ctr + 1
             row_ctr = row_ctr + 1
-        if shelf_name_ctr != self._NUMITEMS:
+        if shelf_name_ctr != self._NUM_ITEMS:
             raise Exception("The incorrect amount of shelves were present for the amount of items specified")
         return cells_copy
 
@@ -478,25 +492,19 @@ class Warehouse:
 
     def move_robot_next_path_spot(self, robot_obj):
         next_spot = robot_obj.get_movement_path()[0]
-        robot_x, robot_y = robot_obj.get_position()
-        self.update_robot_position_obj(robot_obj, robot_x, robot_y,
-                                       next_spot[0],
-                                       next_spot[1])
+        self.update_robot_position(robot_obj.get_name(), next_spot[0], next_spot[1])
         robot_obj.get_movement_path().pop(0)
 
-    def update_robot_position(self, robot_name: str, new_x, new_y):
+    def update_robot_position(self, robot_name, new_x, new_y):
+        if self.cell_is_full(new_x, new_y):
+            raise customexceptions.SimulationError("Two robots collided")
+
         robot_obj = self._robots[robot_name]
         old_x, old_y = robot_obj.get_position()
         robot_obj.set_position(new_x, new_y)
         self._cells[old_y][old_x].remove(robot_name)
         self._cells[new_y][new_x].append(robot_name)
         udptransmit.transmit_robot_position(robot_name, new_x, new_y)
-
-    def update_robot_position_obj(self, robot_obj: robot.Robot, old_x, old_y, new_x, new_y):
-        robot_obj.set_position(new_x, new_y)
-        self._cells[old_y][old_x].remove(robot_obj.get_name())
-        self._cells[new_y][new_x].append(robot_obj.get_name())
-        udptransmit.transmit_robot_position(robot_obj.get_name(), new_x, new_y)
 
 
 

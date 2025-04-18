@@ -2,6 +2,7 @@ import random
 
 import udptransmit
 import entitywithinventory
+import math
 import shelf
 import orderstation
 import customexceptions
@@ -10,17 +11,25 @@ class Robot(entitywithinventory.InventoryEntity):
     def __init__(self, name: str, x: int, y: int, max_inv_size: int, fault_rates: list):
         self._x = x
         self._y = y
+        self._home_x = x
+        self._home_y = y
         self.wait_steps = 0
         self._movement_path = []
         self._current_target = None
         self._steps_halted = 0
         self._prio = None
 
-        self.battery_fault_rate = fault_rates[0]
-        self.sensor_fault_rate = fault_rates[1]
-        self.actuator_fault_rate = fault_rates[2]
+        self._battery_critical_fault_rate = fault_rates[0]
+        self._battery_low_fault_rate = fault_rates[1]
+        self._actuator_fault_rate = fault_rates[2]
+        self._sensor_fault_rate = fault_rates[3]
 
         self.battery_faulted = False
+
+        self.charge_time = 50
+        self.apply_charge_wait_upon_reaching_home = False
+
+        self.battery_faulted_critical = False
         self.sensors_faulted = False
         self.actuators_faulted = False
 
@@ -43,6 +52,13 @@ class Robot(entitywithinventory.InventoryEntity):
 
     def decrement_wait_steps(self):
         self.wait_steps = self.wait_steps - 1
+
+        # Reset the states of the faults that involve waiting after the wait is over
+        if self.wait_steps == 0:
+            self.actuators_faulted = False
+            if (self._home_x == self._x) and (self._home_y == self._y):
+                self.battery_faulted = False
+
 
     def set_position(self, x, y):
         self._steps_halted = 0
@@ -97,12 +113,41 @@ class Robot(entitywithinventory.InventoryEntity):
         udptransmit.transmit_robot_creation(self._name, self._x, self._y)
 
     def maybe_introduce_fault(self):
-        if random.random() < self.battery_fault_rate:
-            self.battery_faulted = True
-        if random.random() < self.actuator_fault_rate:
-            self.actuators_faulted = True
-        if random.random() < self.sensor_fault_rate:
-            self.sensors_faulted = True
+        # Battery fault - 2 types:
+        # Low battery - robot must return to its home and becomes unavailable for a certain number of steps
+        # Battery failure - robot breaks unrecoverable.
+        # Actuator fault - robot cannot move for a certain number of steps - Models overheating
+        # Sensor fault - robot cannot determine what is around it - Is permanent
+
+        # The robot cannot take any actions if the battery has failed
+
+        f0 = False
+        f1 = False
+        f2 = False
+        f3 = False
+
+        if self.battery_faulted_critical:
+            return []
+
+        if random.random() < self._battery_critical_fault_rate:
+            self.battery_faulted_critical = True
+            print("FAULT %s BATTERY CRITICAL" % self._name)
+            f0 = True
+        else:
+            if random.random() < self._battery_low_fault_rate and not self.battery_faulted:
+                print("FAULT %s BATTERY RECHARGE" % self._name)
+                self.battery_faulted = True
+                f1 = True
+            if random.random() < self._actuator_fault_rate and not self.actuators_faulted:
+                self.actuators_faulted = True
+                print("FAULT %s ACTUATOR OVERHEAT" % self._name)
+                f2 = True
+            if random.random() < self._sensor_fault_rate and not self.sensors_faulted:
+                self.sensors_faulted = True
+                print("FAULT %s SENSOR FAILURE" % self._name)
+                f3 = True
+        return [f0, f1, f2, f3]
+
 
     def __repr__(self):
         return self._name

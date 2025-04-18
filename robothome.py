@@ -9,6 +9,10 @@ class RobotHome:
         print("Robot %s returned home" % obj.get_name())
         if obj.get_name() != self._robot_name:
             print("That wasnt the expected robot %s for home expecting %s" % (obj.get_name(), self._robot_name))
+
+        if obj.apply_charge_wait_upon_reaching_home:
+            obj.apply_charge_wait_upon_reaching_home = False
+            obj.set_wait_steps(obj.charge_time)
         return
 
     def get_name(self):
