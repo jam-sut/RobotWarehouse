@@ -18,22 +18,27 @@ if __name__ == "__main__":
     step_times_1 = []
     step_amounts_1 = []
     orders_1 = []
+    errors = []
 
     faulted_sims = 0
-    faulty = [0, 0, 0, 0.01]
+    faulty = [0.001, 0, 0, 0.001]
     perfect_scenario = [0, 0, 0, 0]
 
     for i in range(50):
         sim = warehouse.Warehouse("whouse.txt", 10, 3,
-                                  "simple", faulty, True, 200)
+                                  "simple-interrupt", faulty, True, 300)
         continue_step = True
         skip = False
         while continue_step:
             t1 = time.perf_counter_ns()
             try:
                 continue_step = not sim.step()
-                print("continue was %s" % continue_step)
             except Exception as e:
+                if "Item" in str(e) or "list" in str(e) or "Cannot" in str(e):
+                    print(sim.get_scheduler()._order_robot_assignment)
+                    print(sim.get_scheduler()._order_goal_assignment)
+                    raise e
+                errors.append(e)
                 faulted_sims += 1
                 skip = True
                 break
@@ -96,6 +101,8 @@ if __name__ == "__main__":
     print("Average amount of steps for simple, %s" % statistics.mean(step_amounts_1))
     #print("Average amount of steps for simple-interrupt, %s" % statistics.mean(step_amounts_2))
     print("%s SIMS BROKE" % faulted_sims)
+    for er in errors:
+        print(er)
 
 
 

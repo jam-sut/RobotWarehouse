@@ -44,13 +44,16 @@ class Robot(entitywithinventory.InventoryEntity):
     def get_prio(self):
         return self._prio
 
-    def set_wait_steps(self, step_amount):
-        self.wait_steps = step_amount
+    def add_wait_steps(self, step_amount):
+        self.wait_steps = self.wait_steps + step_amount
 
     def get_wait_steps(self):
         return self.wait_steps
 
     def decrement_wait_steps(self):
+        if self.wait_steps == math.inf:
+            return
+
         self.wait_steps = self.wait_steps - 1
 
         # Reset the states of the faults that involve waiting after the wait is over
@@ -61,6 +64,8 @@ class Robot(entitywithinventory.InventoryEntity):
 
 
     def set_position(self, x, y):
+        if self.wait_steps != 0:
+            raise customexceptions.SimulationError("Cannot move a robot that is waiting")
         self._steps_halted = 0
         self._x = x
         self._y = y

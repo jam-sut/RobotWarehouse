@@ -34,7 +34,7 @@ class Warehouse:
         udptransmit.transmit_start()
         self.generate_items(self._NUM_ITEMS)
 
-        self._order_manager = ordermanager.OrderManager(5, 6, self._items)
+        self._order_manager = ordermanager.OrderManager(5, 5, self._items)
 
         self._robot_max_inventory = robot_max_inventory
         # Warehouse cell (x,y) is accessed via self._cells[y][x]
@@ -42,7 +42,8 @@ class Warehouse:
 
         self._scheduler = scheduler.Scheduler(self._robots, self._shelves, self._order_stations,
                                               self._homes, self._order_manager.get_init_orders(),
-                                              schedule_mode, self._fault_tolerant_mode)
+                                              schedule_mode,
+                                              self._robot_max_inventory, self._fault_tolerant_mode)
         self._scheduler.schedule()
 
         self._width = len(self._cells[0])
@@ -68,10 +69,10 @@ class Warehouse:
 
             # Robots should only take action if they are not waiting
             if robot_obj.get_wait_steps() == 0:
-                print("Updating robot %s" % robot_obj.get_name())
+                #print("Updating robot %s" % robot_obj.get_name())
                 self.decide_robot_action(robot_obj)
             else:
-                print("Robot %s waited a step" % robot_obj.get_name())
+                #print("Robot %s waited a step" % robot_obj.get_name())
                 robot_obj.decrement_wait_steps()
 
         # ============================================ADD DYNAMIC ORDERS==============================================
@@ -81,7 +82,7 @@ class Warehouse:
             self._scheduler.add_order(new_order)
 
         # ============================================DISPLAY LAYOUT==================================================
-        self.print_layout_simple()
+        #self.print_layout_simple()
 
         return self._scheduler.are_all_orders_complete()
 
@@ -89,12 +90,12 @@ class Warehouse:
         if not fault_list:
             return
         if fault_list[0]:
-            robot_obj.set_wait_steps(math.inf)
+            robot_obj.add_wait_steps(math.inf)
         if fault_list[1]:
             robot_obj.set_target(self._homes["home%s" % robot_obj.get_name()[5:]])
             robot_obj.apply_charge_wait_upon_reaching_home = True
         if fault_list[2]:
-            robot_obj.set_wait_steps(20)
+            robot_obj.add_wait_steps(20)
         if fault_list[3]:
             self.sensor_faulty_bots[robot_obj.get_name()] = robot_obj
 
@@ -213,18 +214,13 @@ class Warehouse:
         if next_robot is not None:
             while keep_searching:
                 robots_searched.append(next_robot)
-                print("loop")
-                print("previous %s" % next_robot)
                 robot_target = next_robot.get_target()
                 if robot_target is None:
-                    print("BREAK - NOTARGET")
                     break
                 if robot_target.get_position() == next_robot.get_position():
-                    print("BREAK - ROBOTSAMEPOSITION")
                     break
                 next_robot = self.get_robot_at(robot_target.get_position()[0], robot_target.get_position()[1])
                 if next_robot is None:
-                    print("BREAK - NOROBOTLOCATED")
                     break
                 elif next_robot == robot_obj:
                     print("CYCLIC DEADLOCK FOUND CONCERNING THIS ROBOT - OF SIZE %s" % (len(robots_searched)))
@@ -234,9 +230,7 @@ class Warehouse:
                     loop_found = True
                     keep_searching = False
                 elif next_robot in robots_searched:
-                    print("CYCLIC DEADLOCK FOUND, BUT NOT CONCERNING THIS ROBOT")
                     break
-                print("next %s" % next_robot)
         if loop_found:
             robots_by_prio = reversed(sorted(robots_searched, key=lambda robot2: robot2.get_prio()))
             self.move_robot_break_deadlock(robot_obj, robots_by_prio)
@@ -253,6 +247,9 @@ class Warehouse:
 
     def move_robot_break_deadlock(self, this_robot, robots, prioritise_vertical=False):
         for robo in robots:
+            if robo.get_wait_steps() != 0:
+                continue
+
             p = robo.get_position()
 
             vertical = [(p[0], p[1] + 1),
@@ -273,7 +270,7 @@ class Warehouse:
                     self.update_robot_position(robo.get_name(), off[0], off[1])
                     robo.set_movement_path(self.compute_robot_astar_path(robo))
                     if robo != this_robot:
-                        robo.set_wait_steps(1)
+                        robo.add_wait_steps(1)
                     else:
                         print("no waiting required")
                     return True
@@ -281,6 +278,8 @@ class Warehouse:
 
     def move_robots_away_from(self, x, y, robots):
         for robo in robots:
+            if robo.get_wait_steps() != 0:
+                continue
             x_change = robo.get_position()[0] - x
             y_change = robo.get_position()[1] - y
             new_x = robo.get_position()[0] + x_change
@@ -291,7 +290,7 @@ class Warehouse:
                 if robo.get_target() is not None:
                     self.update_robot_position(robo.get_name(), new_x, new_y)
                     robo.set_movement_path(self.compute_robot_astar_path(robo))
-                    robo.set_wait_steps(1)
+                    robo.add_wait_steps(1)
                     return True
         return False
 

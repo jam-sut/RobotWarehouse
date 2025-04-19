@@ -26,8 +26,9 @@ class OrderStation(entitywithinventory.InventoryEntity):
         self.receive_inventory(received)
 
         if self._warehouse_ref.get_scheduler().is_this_a_complete_order(self.report_inventory(),
-                                                                        self,
                                                                         self._warehouse_ref.get_order_manager(),
+                                                                        obj.get_name(),
+                                                                        self._name,
                                                                         self._warehouse_ref.get_total_steps()):
             self.clear_inventory()
 

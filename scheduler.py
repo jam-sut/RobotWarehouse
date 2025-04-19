@@ -1,15 +1,18 @@
 import copy
 import math
 
+
 import customexceptions
 import gahandler
 import ordermanager
 import utils
 import pygad
+import order
 
 
 class Scheduler:
     def __init__(self, robots: dict, shelves: dict, goals: dict, homes:dict, init_orders: list, schedule_mode:str,
+                 robot_inventory_size: int,
                  fault_tolerant_mode: bool):
         self._fault_tolerant_mode = fault_tolerant_mode
         self._robots = robots
@@ -34,7 +37,7 @@ class Scheduler:
         self._goals = goals
         self._homes = homes
 
-        self._ROBOTINVSIZE = 3
+        self._ROBOT_INVENTORY_SIZE = robot_inventory_size
 
         self._orders_backlog = []
         self._orders_backlog.extend(init_orders)
@@ -62,7 +65,7 @@ class Scheduler:
         for goal_name, goal_obj in self._goals.items():
             if goal_name == "goal0":
                 self._all_positions[goal_name] = goal_obj.get_position()
-                for i in range(self._ROBOTINVSIZE):
+                for i in range(self._ROBOT_INVENTORY_SIZE):
                     self._all_genes.append("%s|%s" % (goal_name, i+1))
 
         for location1 in self._all_positions.keys():
@@ -122,103 +125,176 @@ class Scheduler:
 
     def schedule(self):
         if self._schedule_mode == "simple":
-            self.simple_single_robot_schedule()
+            self.simple_single_robot_schedule(self._fault_tolerant_mode)
         elif self._schedule_mode == "simple-interrupt":
-            self.single_interrupt_robot_schedule()
+            self.single_interrupt_robot_schedule(self._fault_tolerant_mode)
 
-    def get_items_already_delivered_for_order(self, order):
-        order_goal_name = self._order_goal_assignment[order.get_id()]
+    def get_items_already_delivered_for_order(self, order_id):
+        order_goal_name = self._order_goal_assignment[order_id]
         order_goal = self._goals[order_goal_name]
         return order_goal.report_inventory()
 
-    def simple_single_robot_schedule(self, single_item_mode=False):
-        break_outer_loop = False
+    def reassign_orders_if_faulted(self):
+        orders_to_remove = []
+        orders_to_add = []
+        for order_id, robot_name in self._order_robot_assignment.items():
+            if self._robots[robot_name].battery_faulted_critical:
+                items_already_delivered = self.get_items_already_delivered_for_order(order_id)
+                order_to_remove = None
+                for order_obj in self._orders_active:
+                    if order_obj.get_id() == order_id:
+                        order_to_remove = order_obj
+
+                items_left_to_deliver = copy.deepcopy(order_to_remove.get_original_items())
+                print("Order items %s" % items_left_to_deliver)
+                print("Items already delivered %s" % items_already_delivered)
+
+                for item1 in items_already_delivered:
+                    items_left_to_deliver.remove(item1)
+
+                new_order = order.Order(items_left_to_deliver, order_to_remove.get_prio(),
+                                        order_to_remove.get_id(), order_to_remove.get_original_items())
+
+                if len(items_already_delivered) == 0:
+                    self._order_goal_assignment.pop(order_id)
+                else:
+                    print("KEEPING ASSIGNMENT %s %s" % (order_id, self._order_goal_assignment[order_id]))
+
+                orders_to_remove.append(order_to_remove)
+                orders_to_add.append(new_order)
+        for order_obj in orders_to_remove:
+            self._order_robot_assignment.pop(order_obj.get_id())
+            self._orders_active.remove(order_obj)
+            print("removed order %s" % order_obj)
+            print(order_obj.get_id())
+
+        for order_obj in orders_to_add:
+            self._orders_backlog.append(order_obj)
+            print("added order %s" % order_obj)
+
+    def simple_single_robot_schedule(self, fault_tolerant_mode, single_item_mode=False):
+        if fault_tolerant_mode:
+            self.reassign_orders_if_faulted()
+
         orders_to_move = []
         # For every order in the backlog (sorted by priority)
-        for order in reversed(sorted(self._orders_backlog, key=lambda order1: order1.get_prio())):
+        for order_obj in reversed(sorted(self._orders_backlog, key=lambda order1: order1.get_prio())):
+            free_robot_obj = None
+            free_goal_obj = None
+
+            # For every robot
             for robot_name, robot in self._robots.items():
-                # Check whether there is a free robot to take it
+                if fault_tolerant_mode:
+                    # Check if the robot has critically faulted
+                    if robot.battery_faulted_critical:
+                        continue
+
+                # Check whether the robot is already assigned
                 if robot_name not in self._order_robot_assignment.values():
-                    for goal_name, goal in self._goals.items():
+                    free_robot_obj = robot
 
-                        # Check whether there is a free goal to take it
-                        if goal_name not in self._order_goal_assignment.values():
+            # If this order already has an assigned goal
+            if (order_obj.get_id() in self._order_goal_assignment.keys() and order_obj.get_id()
+                    not in self._order_robot_assignment.keys()):
+                goal_name = self._order_goal_assignment[order_obj.get_id()]
+                # Then we can use the same goal again
+                free_goal_obj = self._goals[goal_name]
+            else:
+                # Otherwise, for every goal
+                for goal_name, goal in self._goals.items():
 
-                            self._order_robot_assignment[order.get_id()] = robot_name
-                            robot.set_prio(order.get_prio())
-                            print("order %s assigned to robot %s" % (order.get_id(), robot_name))
+                    # Check whether its being used
+                    if goal_name not in self._order_goal_assignment.values():
+                        free_goal_obj = goal
 
-                            self._order_goal_assignment[order.get_id()] = goal_name
+            if (free_robot_obj is not None) and (free_goal_obj is not None):
+                goal_name = free_goal_obj.get_name()
+                robot_name = free_robot_obj.get_name()
 
-                            if single_item_mode:
-                                for item in reversed(sorted(order.get_items(), key=lambda itm: itm.get_dependency())):
-                                    if item.get_name() not in self._item_to_shelf_mapping.keys():
-                                        message = "Scheduling impossible, no shelf exists for item %s" % item.get_name()
-                                        raise customexceptions.SimulationError(message)
-                                    shelf_name = self._item_to_shelf_mapping[item.get_name()][0]
-                                    self.add_to_schedule(robot_name, shelf_name)
-                                    self.add_to_schedule(robot_name, goal_name)
+                self._order_robot_assignment[order_obj.get_id()] = robot_name
+                free_robot_obj.set_prio(order_obj.get_prio())
+                print("order %s assigned to robot %s" % (order_obj.get_id(), robot_name))
+                print("Using goal %s" % goal_name)
 
-                            if not single_item_mode:
-                                robot_inventory_used = 0
-                                for item in reversed(sorted(order.get_items(), key=lambda itm: itm.get_dependency())):
-                                    if item.get_name() not in self._item_to_shelf_mapping.keys():
-                                        message = "Scheduling impossible, no shelf exists for item %s" % item.get_name()
-                                        raise customexceptions.SimulationError(message)
-                                    shelf_name = self._item_to_shelf_mapping[item.get_name()][0]
-                                    if robot_inventory_used == self._ROBOTINVSIZE:
-                                        self.add_to_schedule(robot_name, goal_name)
-                                        robot_inventory_used = 0
-                                    self.add_to_schedule(robot_name, shelf_name)
-                                    robot_inventory_used = robot_inventory_used + 1
+                self._order_goal_assignment[order_obj.get_id()] = goal_name
 
-                                self.add_to_schedule(robot_name, goal_name)
-                            print("its complete schedule is %s" % self._schedule[robot_name])
-                            orders_to_move.append(order)
-                            break_outer_loop = True
-                            break
+                if single_item_mode:
+                    for item in reversed(sorted(order_obj.get_items(), key=lambda itm: itm.get_dependency())):
+                        if item.get_name() not in self._item_to_shelf_mapping.keys():
+                            message = "Scheduling impossible, no shelf exists for item %s" % item.get_name()
+                            raise customexceptions.SimulationError(message)
+                        shelf_name = self._item_to_shelf_mapping[item.get_name()][0]
+                        self.add_to_schedule(robot_name, shelf_name)
+                        self.add_to_schedule(robot_name, goal_name)
 
-                if break_outer_loop:
-                    break_outer_loop = False
-                    break
+                if not single_item_mode:
+                    robot_inventory_used = 0
+                    for item in reversed(sorted(order_obj.get_items(), key=lambda itm: itm.get_dependency())):
+                        if item.get_name() not in self._item_to_shelf_mapping.keys():
+                            message = "Scheduling impossible, no shelf exists for item %s" % item.get_name()
+                            raise customexceptions.SimulationError(message)
+                        shelf_name = self._item_to_shelf_mapping[item.get_name()][0]
+                        if robot_inventory_used == self._ROBOT_INVENTORY_SIZE:
+                            self.add_to_schedule(robot_name, goal_name)
+                            robot_inventory_used = 0
+                        self.add_to_schedule(robot_name, shelf_name)
+                        robot_inventory_used = robot_inventory_used + 1
+
+                    self.add_to_schedule(robot_name, goal_name)
+
+                    print("its complete schedule is %s" % self._schedule[robot_name])
+                    orders_to_move.append(order_obj)
 
         for ordr in orders_to_move:
             self._orders_backlog.remove(ordr)
             self._orders_active.append(ordr)
 
-    def single_interrupt_robot_schedule(self):
+    def single_interrupt_robot_schedule(self, fault_tolerant_mode):
         orders_to_move = []
-        for order in reversed(sorted(self._orders_backlog, key=lambda order1: order1.get_prio())):
+        for order_obj in reversed(sorted(self._orders_backlog, key=lambda order1: order1.get_prio())):
             free_robot_obj = None
             free_goal_obj = None
 
             for robot_name, robot in self._robots.items():
+                if fault_tolerant_mode:
+                    # Check if the robot has critically faulted
+                    if robot.battery_faulted_critical:
+                        continue
                 # Check whether there is a free robot to take the order
                 if robot_name not in self._order_robot_assignment.values():
                     free_robot_obj = robot
 
-            for goal_name, goal in self._goals.items():
-                # Check whether there is a free goal to take it
-                if goal_name not in self._order_goal_assignment.values():
-                    free_goal_obj = goal
+            # If this order already has an assigned goal
+            if (order_obj.get_id() in self._order_goal_assignment.keys() and order_obj.get_id()
+                    not in self._order_robot_assignment.keys()):
+                goal_name = self._order_goal_assignment[order_obj.get_id()]
+                # Then we can use the same goal again
+                free_goal_obj = self._goals[goal_name]
+            else:
+                # Otherwise, for every goal
+                for goal_name, goal in self._goals.items():
+
+                    # Check whether its being used
+                    if goal_name not in self._order_goal_assignment.values():
+                        free_goal_obj = goal
 
             if (free_robot_obj is not None) and (free_goal_obj is not None):
                 robot_name = free_robot_obj.get_name()
                 goal_name = free_goal_obj.get_name()
 
-                self._order_robot_assignment[order.get_id()] = robot_name
-                free_robot_obj.set_prio(order.get_prio())
-                print("order %s assigned to robot %s" % (order.get_id(), robot_name))
+                self._order_robot_assignment[order_obj.get_id()] = robot_name
+                free_robot_obj.set_prio(order_obj.get_prio())
+                print("order %s assigned to robot %s" % (order_obj.get_id(), robot_name))
 
-                self._order_goal_assignment[order.get_id()] = goal_name
+                self._order_goal_assignment[order_obj.get_id()] = goal_name
 
                 robot_inventory_used = 0
-                for item in reversed(sorted(order.get_items(), key=lambda itm: itm.get_dependency())):
+                for item in reversed(sorted(order_obj.get_items(), key=lambda itm: itm.get_dependency())):
                     if item.get_name() not in self._item_to_shelf_mapping.keys():
                         message = "Scheduling impossible, no shelf exists for item %s" % item.get_name()
                         raise customexceptions.SimulationError(message)
                     shelf_name = self._item_to_shelf_mapping[item.get_name()][0]
-                    if robot_inventory_used == self._ROBOTINVSIZE:
+                    if robot_inventory_used == self._ROBOT_INVENTORY_SIZE:
                         self.add_to_schedule(robot_name, goal_name)
                         robot_inventory_used = 0
                     self.add_to_schedule(robot_name, shelf_name)
@@ -226,11 +302,11 @@ class Scheduler:
 
                 self.add_to_schedule(robot_name, goal_name)
                 print("its complete schedule is %s" % self._schedule[robot_name])
-                orders_to_move.append(order)
+                orders_to_move.append(order_obj)
 
             elif free_robot_obj is None and free_goal_obj is not None:
                 found_lower_prio_robot_name = None
-                lowest_prio_found = order.get_prio()
+                lowest_prio_found = order_obj.get_prio()
 
                 for order_id, robot_name in self._order_robot_assignment.items():
                     robot_obj = self._robots[robot_name]
@@ -249,8 +325,8 @@ class Scheduler:
                                 target_good = True
 
                         if robot_obj.get_inventory_usage() != 0:
-                            if robot_obj.get_inventory_usage() != self._ROBOTINVSIZE:
-                                if order.get_highest_item_dep() <= robot_obj.peek_inventory().get_dependency():
+                            if robot_obj.get_inventory_usage() != self._ROBOT_INVENTORY_SIZE:
+                                if order_obj.get_highest_item_dep() <= robot_obj.peek_inventory().get_dependency():
                                     inventory_usage_good = True
                         else:
                             inventory_usage_good = True
@@ -260,25 +336,24 @@ class Scheduler:
                             found_lower_prio_robot_name = robot_name
 
                 if found_lower_prio_robot_name is not None:
-                    print("entering")
-                    print("Order ID is %s" % order.get_id())
+                    print("Order ID is %s" % order_obj.get_id())
                     print("New goal is %s" % free_goal_obj.get_name())
                     selected_bot = self._robots[found_lower_prio_robot_name]
                     print(selected_bot.get_inventory_usage())
-                    self._order_robot_assignment[order.get_id()] = found_lower_prio_robot_name
-                    selected_bot.set_prio(order.get_prio())
-                    self._order_goal_assignment[order.get_id()] = free_goal_obj.get_name()
+                    self._order_robot_assignment[order_obj.get_id()] = found_lower_prio_robot_name
+                    selected_bot.set_prio(order_obj.get_prio())
+                    self._order_goal_assignment[order_obj.get_id()] = free_goal_obj.get_name()
 
                     robot_inventory_already_used = selected_bot.get_inventory_usage()
 
                     prepend_schedule = []
                     robot_inventory_used_for_this_order = 0
-                    for item in reversed(sorted(order.get_items(), key=lambda itm: itm.get_dependency())):
+                    for item in reversed(sorted(order_obj.get_items(), key=lambda itm: itm.get_dependency())):
                         if item.get_name() not in self._item_to_shelf_mapping.keys():
                             message = "Scheduling impossible, no shelf exists for item %s" % item.get_name()
                             raise customexceptions.SimulationError(message)
                         shelf_name = self._item_to_shelf_mapping[item.get_name()][0]
-                        if robot_inventory_used_for_this_order == self._ROBOTINVSIZE - robot_inventory_already_used:
+                        if robot_inventory_used_for_this_order == self._ROBOT_INVENTORY_SIZE - robot_inventory_already_used:
                             prepend_schedule.append("%s|%s" % (free_goal_obj.get_name(),
                                                                robot_inventory_used_for_this_order))
                             robot_inventory_used_for_this_order = 0
@@ -290,11 +365,18 @@ class Scheduler:
                     self.prepend_to_schedule(found_lower_prio_robot_name, prepend_schedule)
 
                     print("Interruption schedule complete for robot %s is %s" % (found_lower_prio_robot_name, self._schedule[found_lower_prio_robot_name]))
-                    orders_to_move.append(order)
+                    orders_to_move.append(order_obj)
 
         for ordr in orders_to_move:
             self._orders_backlog.remove(ordr)
             self._orders_active.append(ordr)
+
+    def multi_robot_schedule(self, genetic_alg_activate, fault_tolerant_mode):
+        orders_to_move = []
+        for order_obj in reversed(sorted(self._orders_backlog, key=lambda order1: order1.get_prio())):
+            print("")
+
+
 
     def add_to_schedule(self, robot_name, target_name):
         if robot_name not in self._schedule.keys():
@@ -316,8 +398,8 @@ class Scheduler:
             # We shouldn't do anything if the scheduler has nothing more for this robot
             if self._schedule[robot_name]:
                 robot_next_target_name = self._schedule[robot_name].pop(0)
-                print("Robot %s directed to %s" % (robot_name,robot_next_target_name))
-                print("Schedule remaining: %s" % self._schedule[robot_name])
+                #print("Robot %s directed to %s" % (robot_name,robot_next_target_name))
+                #print("Schedule remaining: %s" % self._schedule[robot_name])
                 robot_next_target_obj = None
                 if "shelf" in robot_next_target_name:
                     robot_next_target_obj = self._shelves[robot_next_target_name]
@@ -347,7 +429,7 @@ class Scheduler:
             return False
         return True
 
-    def is_this_a_complete_order(self, items: list, goal, ordermanagr: ordermanager.OrderManager, step_ctr):
+    def is_this_a_complete_order(self, items: list, order_manager: ordermanager.OrderManager, robot_name, goal_name, step_ctr):
         for order in self._orders_active:
             comp_items = copy.deepcopy(items)
             should_continue = False
@@ -361,7 +443,7 @@ class Scheduler:
             if should_continue:
                 continue
 
-            if len(comp_items) == 0 and goal.get_name_last_robot() == self._order_robot_assignment[order.get_id()]:
+            if len(comp_items) == 0 and robot_name == self._order_robot_assignment[order.get_id()] and goal_name == self._order_goal_assignment[order.get_id()]:
 
                 self._orders_active.remove(order)
 
@@ -369,7 +451,7 @@ class Scheduler:
                 self._order_goal_assignment.pop(order.get_id())
                 print("Order %s completed by robot %s" % (order.get_id(), robot_name))
                 print("order %s complete" % order.get_id())
-                ordermanagr.set_order_completion_time(order, step_ctr)
+                order_manager.set_order_completion_time(order, step_ctr)
 
                 # homeN is robotN's home
                 print("setting %s to return home" % robot_name)

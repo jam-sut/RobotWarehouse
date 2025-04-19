@@ -14,7 +14,7 @@ class OrderManager:
         self._order_intro_times = {}
         self._order_completion_times = {}
         self._all_orders = {}
-        self.generate_orders_static(num_init_orders, num_dynamic_orders, 4)
+        self.generate_orders_uniform(num_init_orders, num_dynamic_orders, 4)
 
         for ordr in self._init_orders:
             self._order_intro_times[ordr.get_id()] = 0
@@ -22,13 +22,10 @@ class OrderManager:
         self._dynamic_orders_intro_steps = {}
         self.generate_dynamic_order_introduction_times_uniform(100)
 
-
-
-    def set_order_completion_time(self, ordr, step_value):
+    def set_order_completion_time(self, ordr: order.Order, step_value:int):
         self._order_completion_times[ordr.get_id()] = step_value
 
-
-    def generate_orders_static(self, num_init_orders: int, num_dynamic_orders: int, order_size: int):
+    def generate_orders_uniform(self, num_init_orders: int, num_dynamic_orders: int, order_size: int):
         order_id_ctr = 0
         for i in range(num_init_orders):
             current_items = []
