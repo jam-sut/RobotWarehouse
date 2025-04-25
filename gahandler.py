@@ -79,6 +79,13 @@ def fitness_func(ga_instance, solution, solution_idx):
         def __init__(self, name):
             super().__init__(name, math.inf, False)
 
+    PENALTY_SAME_ROBOT_MULTIPLE_TIMES = -2
+    PENALTY_NO_START_WITH_ROBOT = -3
+    PENALTY_NO_ROBOT = -3
+    PENALTY_ROBOT_DOES_NOTHING = -2
+    PENALTY_NO_GOALS = -3
+    PENALTY_MORE_GOALS_THAN_ORDERS = -2
+
     handler = GAHandler.get_instance()
     solution_decoded = []
     for int_gene in solution:
@@ -87,12 +94,12 @@ def fitness_func(ga_instance, solution, solution_idx):
             raise customexceptions.SimulationError("Invalid gene in solution %s" % decoded)
         solution_decoded.append(decoded)
 
-    #print(solution_decoded)
     robot_indices = []
     goals_in_solution = []
     robot_counter = {}
-    orders_to_fulfill = copy.deepcopy(handler.get_orders())
+    order_to_fulfill = copy.deepcopy(handler.get_order())
     item_mapping = handler.get_shelf_item_mapping()
+
 
     ctr = 0
     for string_gene in solution_decoded:
@@ -101,18 +108,17 @@ def fitness_func(ga_instance, solution, solution_idx):
             if string_gene not in robot_counter.keys():
                 robot_counter[string_gene] = 1
             else:
-                return -10
+                return PENALTY_SAME_ROBOT_MULTIPLE_TIMES
         if "goal" in string_gene:
-            if string_gene.split("|")[0] not in goals_in_solution:
-                goals_in_solution.append(string_gene.split("|")[0])
+            if string_gene not in goals_in_solution:
+                goals_in_solution.append(string_gene)
         ctr = ctr + 1
 
     if not robot_indices:
-        return -10
+        return PENALTY_NO_ROBOT
 
     if "robot" not in solution_decoded[0]:
-        return -10
-
+        return PENALTY_NO_START_WITH_ROBOT
 
     robot_indices.append(len(solution_decoded))
 
@@ -123,20 +129,20 @@ def fitness_func(ga_instance, solution, solution_idx):
     goalctrs = {}
     for schedule in robot_schedules_sep:
         if len(schedule) == 1:
-            return -9
+            return PENALTY_ROBOT_DOES_NOTHING
         found = False
         for place in schedule:
             if "goal" in place:
-                if place.split("|")[0] not in goalctrs.keys():
-                    goalctrs[place.split("|")[0]] = 1
+                if place not in goalctrs.keys():
+                    goalctrs[place] = 1
                 else:
-                    goalctrs[place.split("|")[0]] += 1
+                    goalctrs[place] += 1
                 found = True
         if not found:
-            return -8
+            return PENALTY_NO_GOALS
 
-    if len(goalctrs.keys()) > len(orders_to_fulfill):
-        return -8
+    if len(goalctrs.keys()) > 1:
+        return PENALTY_MORE_GOALS_THAN_ORDERS
 
     mock_robots = []
     mock_goals = {}
@@ -159,7 +165,15 @@ def fitness_func(ga_instance, solution, solution_idx):
         schedules_with_execution_progress.append([robot_ctr, schedule, 0])
         robot_ctr += 1
 
+    correct_pickups_so_far = 0
+    items_picked_up = []
+    schedules_total_length = len(solution_decoded)
+    order_total_items = len(order_to_fulfill)
+    steps_executed_succesfully = 0
+    success = False
+
     while schedules_have_not_completed(schedules_with_execution_progress):
+
         smallest_time = math.inf
         smallest_sched = None
         for schedule in schedules_with_execution_progress:
@@ -172,23 +186,29 @@ def fitness_func(ga_instance, solution, solution_idx):
 
         if "shelf" in target:
             try:
+                items_picked_up.append(item_mapping[target].get_name())
                 mock_robots[robot_id].add_item_to_inventory(item_mapping[target])
+                order_items = copy.deepcopy(order_to_fulfill)
+                for item in items_picked_up:
+                    if item not in order_items:
+                        return -1 + (float(correct_pickups_so_far) / order_total_items)**2 + (float(steps_executed_succesfully)/schedules_total_length)**2
+                    else:
+                        order_items.remove(item)
+                correct_pickups_so_far += 1
             except customexceptions.SimulationError:
-                return -5
+                return -1 + (float(correct_pickups_so_far) / order_total_items)**2 + (float(steps_executed_succesfully)/schedules_total_length)**2
 
         elif "goal" in target:
-            goal_name = target.split("|")[0]
-            amount_items = int(target.split("|")[1])
-            mock_robots[robot_id].set_amount_of_items_to_transfer_next_time(amount_items)
             try:
-                mock_goals[goal_name].receive_inventory(mock_robots[robot_id].transfer_inventory())
-            except customexceptions.SimulationError as e:
-                return -5
+                mock_goals[target].receive_inventory(mock_robots[robot_id].transfer_inventory())
 
-            order1 = return_equivalent_full_order(orders_to_fulfill,
-                                                  mock_goals[goal_name].report_inventory_item_names())
+            except customexceptions.SimulationError as err:
+                return -1 + (float(correct_pickups_so_far) / order_total_items)**2 + (float(steps_executed_succesfully)/schedules_total_length)**2
+
+            order1 = return_equivalent_full_order([order_to_fulfill],
+                                                  mock_goals[target].report_inventory_item_names())
             if order1 is not None:
-                orders_to_fulfill.remove(order1)
+                success = True
 
         smallest_sched[2] = smallest_sched[2] + 1
 
@@ -197,42 +217,31 @@ def fitness_func(ga_instance, solution, solution_idx):
 
             new_accumulated_dist = 0
 
-            if "goal" in target:
-                target_name = target.split("|")[0]
-            else:
-                target_name = target
-
-            if "goal" in next_target:
-                next_target_name = next_target.split("|")[0]
-            else:
-                next_target_name = next_target
-
             if ("wait" != next_target) and ("wait" != target):
-                new_accumulated_dist = handler.get_distance_between(target_name, next_target_name)
+                new_accumulated_dist = handler.get_distance_between(target, next_target)
 
             if ("wait" == target) and ("wait" != next_target):
-                new_accumulated_dist = handler.get_distance_between(robots_last_actual_location[robot_id], next_target_name)
+                new_accumulated_dist = handler.get_distance_between(robots_last_actual_location[robot_id], next_target)
 
-            if (next_target == "wait") and (target_name != "wait"):
+            if (next_target == "wait") and (target != "wait"):
                 new_accumulated_dist = 1
-                robots_last_actual_location[robot_id] = target_name
-            robots_distance_accumulated[robot_id] += new_accumulated_dist
+                robots_last_actual_location[robot_id] = target
 
-    if len(orders_to_fulfill) != 0:
-        #print("Not all orders were completed")
+            if (next_target == "wait") and (target == "wait"):
+                new_accumulated_dist = 1
+
+            robots_distance_accumulated[robot_id] += new_accumulated_dist
+        steps_executed_succesfully += 1
+        #print("%s|%s || %s|%s "%(steps_executed_succesfully, schedules_total_length, correct_pickups_so_far, order_total_items))
+    if not success:
         inventories = []
         for goal in mock_goals.values():
             inventories.append(goal.report_inventory_item_names())
-        return return_how_close(orders_to_fulfill, inventories)
+        return return_how_close([order_to_fulfill], inventories)
+    #print("success")
+    #print(max(robots_distance_accumulated))
 
-    print("SUCCESS")
-
-    for robot in mock_robots:
-        if robot.get_inventory_usage() != 0:
-            print("Some robots didnt use their inventory to full efficiency")
-            return 1 + 1.0 / max(robots_distance_accumulated)
-
-    return 1.5 + 1.0 / max(robots_distance_accumulated)
+    return 1.0 + 1.0 / max(robots_distance_accumulated)
 
 
 
@@ -249,12 +258,13 @@ class GAHandler:
         self._all_gene_strings = []
         self._all_gene_ints = []
         self._shelf_item_mapping = {}
-        self._orders = []
+        self._order = None
         self._robot_max_inv = 3
         self._distance_graph = {}
 
     def set_genes(self, all_gene_strings):
         self._all_gene_strings = all_gene_strings
+        self._all_gene_ints = []
         for string1 in self._all_gene_strings:
             self._all_gene_ints.append(encode_string_utf8_to_int(string1))
 
@@ -269,14 +279,14 @@ class GAHandler:
     def get_shelf_item_mapping(self):
         return self._shelf_item_mapping
 
-    def set_orders_to_fulfill(self, orders):
-        self._orders = orders
+    def set_order_to_fulfill(self, orders):
+        self._order = orders
 
     def get_all_string_genes(self):
         return self._all_gene_strings
 
-    def get_orders(self):
-        return self._orders
+    def get_order(self):
+        return self._order
 
     def get_max_inventory(self):
         return self._robot_max_inv

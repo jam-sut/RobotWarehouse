@@ -1,6 +1,6 @@
 import copy
 class Order:
-    def __init__(self, items: list, prio: int, idnum: int, original_items=None):
+    def __init__(self, items: list, prio: int, idnum: int, original_items= None):
         self._items = items
         self._prio = prio
         self._id = idnum

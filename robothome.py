@@ -6,13 +6,11 @@ class RobotHome:
         self._robot_name = robot_name
 
     def interact(self, obj):
-        print("Robot %s returned home" % obj.get_name())
-        if obj.get_name() != self._robot_name:
-            print("That wasnt the expected robot %s for home expecting %s" % (obj.get_name(), self._robot_name))
-
         if obj.apply_charge_wait_upon_reaching_home:
             obj.apply_charge_wait_upon_reaching_home = False
-            obj.set_wait_steps(obj.charge_time)
+            obj.clear_inventory()
+            obj.add_wait_steps(obj.charge_time)
+            obj.set_amount_of_items_to_transfer_next_time(None)
         return
 
     def get_name(self):

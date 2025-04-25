@@ -3,15 +3,17 @@ import random
 import time
 
 class OrderManager:
-    def __init__(self, num_init_orders: int, num_dynamic_orders: int, item_set: dict):
+    def __init__(self, num_init_orders: int, num_dynamic_orders: int, item_set: dict, dynamic_deadline:int):
         self._num_init_orders = num_init_orders
         self._num_dynamic_orders = num_dynamic_orders
         self._item_set = item_set
+        self._dynamic_deadline = dynamic_deadline
 
         self._init_orders = []
         self._dynamic_orders = []
 
         self._order_intro_times = {}
+        self._order_work_start_times = {}
         self._order_completion_times = {}
         self._all_orders = {}
         self.generate_orders_uniform(num_init_orders, num_dynamic_orders, 4)
@@ -20,7 +22,13 @@ class OrderManager:
             self._order_intro_times[ordr.get_id()] = 0
 
         self._dynamic_orders_intro_steps = {}
-        self.generate_dynamic_order_introduction_times_uniform(100)
+        self.generate_dynamic_order_introduction_times_uniform(self._dynamic_deadline)
+
+
+    def get_dynamic_deadline(self):
+        return self._dynamic_deadline
+    def set_order_start_work_time(self, order_id, step_value):
+        self._order_work_start_times[order_id] = step_value
 
     def set_order_completion_time(self, ordr: order.Order, step_value:int):
         self._order_completion_times[ordr.get_id()] = step_value
@@ -90,6 +98,11 @@ class OrderManager:
             ret.append((self._all_orders[order_id].get_prio(), completion))
         return ret
 
+    def get_order_start_work_times(self):
+        return self._order_work_start_times
+
+    def get_order_finish_work_times(self):
+        return self._order_completion_times
 
 
 

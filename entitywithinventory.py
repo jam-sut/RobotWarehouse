@@ -15,9 +15,6 @@ class InventoryEntity:
         self._amount_items_transfer_next_time = None
         self._should_transmit = is_simulation_obj
 
-    def set_amount_of_items_to_transfer_next_time(self, num):
-        self._amount_items_transfer_next_time = num
-
     def add_item_to_inventory(self, item_to_add: item.Item):
         new_dep = item_to_add.get_dependency()
         if new_dep <= self.last_item_dep:
@@ -44,10 +41,24 @@ class InventoryEntity:
             self.last_item_dep = self._inventory[-1].get_dependency()
         return popped_item
 
+    def clear_inventory(self):
+        self._inventory = []
+        if self._should_transmit:
+            udptransmit.transmit_clear_inventory(self._name)
+        self.last_item_dep = math.inf
+
+
+    def set_amount_of_items_to_transfer_next_time(self, num):
+        self._amount_items_transfer_next_time = num
+
+
     def peek_inventory(self):
         return copy.deepcopy(self._inventory[-1])
 
     def transfer_inventory(self):
+        if len(self._inventory) == 0:
+            raise customexceptions.SimulationError("Tried to transfer an empty inventory")
+
         if self._amount_items_transfer_next_time is None:
             inventory_copy = copy.deepcopy(self._inventory)
             self._inventory = []
@@ -67,11 +78,7 @@ class InventoryEntity:
         for itm in items:
             self.add_item_to_inventory(itm)
 
-    def clear_inventory(self):
-        self._inventory = []
-        if self._should_transmit:
-            udptransmit.transmit_clear_inventory(self._name)
-        self.last_item_dep = math.inf
+
 
     # For each item in the inventory
     # The dependency number must be smaller than any item previously
