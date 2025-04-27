@@ -53,7 +53,6 @@ class Simulation:
                 self.error_strings.append(err)
                 continue
             except Exception as err:
-                print("shart")
                 if fault_on_error:
                     raise err
                 continue
@@ -361,10 +360,8 @@ if __name__ == "__main__":
                                                                                   " packets.")
     args = parser.parse_args()
 
-    print("Transmit mode is %s" % args.t)
 
     os.environ["ROBOTSIM_TRANSMIT"] = str(args.t)
-    print(os.environ["ROBOTSIM_TRANSMIT"])
     step_times_1 = []
     step_amounts_1 = []
     orders_1 = []
