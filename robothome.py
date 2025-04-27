@@ -6,11 +6,18 @@ class RobotHome:
         self._robot_name = robot_name
 
     def interact(self, obj):
+        if obj.gone_home_to_clear_inv:
+            obj.gone_home_to_clear_inv = False
+            obj.clear_inventory()
+            obj.add_wait_steps(3)
+
         if obj.apply_charge_wait_upon_reaching_home:
             obj.apply_charge_wait_upon_reaching_home = False
             obj.clear_inventory()
             obj.add_wait_steps(obj.charge_time)
-            obj.set_amount_of_items_to_transfer_next_time(None)
+
+
+        obj.set_amount_of_items_to_transfer_next_time(None)
         return
 
     def get_name(self):

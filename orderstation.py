@@ -15,10 +15,10 @@ class OrderStation(entitywithinventory.InventoryEntity):
         udptransmit.transmit_goal_creation(self._name, self._x, self._y)
 
     def interact(self, obj):
-        print("Robot %s interacting with order station %s" % (obj.get_name(), self._name))
+        #print("Robot %s interacting with order station %s" % (obj.get_name(), self._name))
         received = obj.transfer_inventory()
-        print("Order station %s recieved %s" % (self.get_name(), received))
-        print("Already had %s" % self._inventory)
+        #print("Order station %s recieved %s" % (self.get_name(), received))
+        #print("Already had %s" % self._inventory)
         self.receive_inventory(received)
 
         if self._warehouse_ref.get_scheduler().is_this_a_complete_order(self.report_inventory(),
@@ -27,9 +27,6 @@ class OrderStation(entitywithinventory.InventoryEntity):
                                                                         self._name,
                                                                         self._warehouse_ref.get_total_steps()):
             self.clear_inventory()
-
-        if len(self._inventory) > 3:
-            raise Exception("Wrong order")
 
 
         flag_maybe = obj.consume_flag()

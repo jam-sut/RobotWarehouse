@@ -50,10 +50,12 @@ class Simulation:
             except customexceptions.SimulationError as err:
                 if fault_on_error:
                     raise err
-                if not ("limit" in str(err) or "collided" in str(err)):
-                    pass
-
                 self.error_strings.append(err)
+                continue
+            except Exception as err:
+                print("shart")
+                if fault_on_error:
+                    raise err
                 continue
 
             self.step_times.extend(sim_step_times)
@@ -197,7 +199,7 @@ def run_simulation_performance_test(scheduling_mode:str, robots_max:int, size_ma
         for j in range(1, robots_max+1):
             print("starting %s %s" % (j, i))
             file_name = gen_nxn_warehouse(j, i)
-            sim_1 = Simulation(50, file_name, 12, 3, scheduling_mode,
+            sim_1 = Simulation(10, file_name, 12, 3, scheduling_mode,
                      [0, 0, 0, 0], True, step_limit, i)
             sim_1.run_simulation()
             results.append(sim_1.print_step_time_info())
@@ -266,129 +268,65 @@ def run_completion_time_test():
 
     plt.show()
 
-def run_fault_test():
-    fault_mode = True
+def run_fault_test(scheduling_mode):
     faulty = [0.0001, 0.001, 0.001, 0.001]
-    num_sims = 500
+    num_sims = 250
 
     random.seed(10)
-    sim = Simulation(num_sims, "whouse2.txt", 10, 3, "simple",
-                     faulty, fault_mode, 500)
+    sim = Simulation(num_sims, "whouse2.txt", 10, 3, scheduling_mode,
+                     faulty, True, 500)
 
-    sim_1 = Simulation(num_sims, "whouse2.txt", 10, 3, "simple-interrupt",
-                       faulty, fault_mode, 500)
-
-    sim_2 = Simulation(num_sims, "whouse2.txt", 10, 3, "multi-robot",
-                       faulty, fault_mode, 500)
+    sim_1 = Simulation(num_sims, "whouse2.txt", 10, 3, scheduling_mode,
+                       faulty, False, 500)
 
 
-    fault_mode = False
-
-    random.seed(10)
-    sim_3 = Simulation(num_sims, "whouse2.txt", 10, 3, "simple",
-                     faulty, fault_mode, 500)
-
-    sim_4 = Simulation(num_sims, "whouse2.txt", 10, 3, "simple-interrupt",
-                       faulty, fault_mode, 500)
-
-    sim_5 = Simulation(num_sims, "whouse2.txt", 10, 3, "multi-robot",
-                       faulty, fault_mode, 500)
 
     sim.run_simulation()
     sim_1.run_simulation()
-    sim_2.run_simulation()
-
-    sim_3.run_simulation()
-    sim_4.run_simulation()
-    sim_5.run_simulation()
-
-    all_errors_1 = [sim.print_error_info(), sim_1.print_error_info(), sim_2.print_error_info()]
-    all_errors_2 = [sim_3.print_error_info(), sim_4.print_error_info(), sim_5.print_error_info()]
 
 
-    collisions_1 = []
-    overruns_1 = []
-    invalid_schedule_1 = []
-    all_error_nums_1 = []
-    ctr = 0
+    all_errors_1 = sim.print_error_info()
+    all_errors_2 = sim_1.print_error_info()
 
-    for sim_1 in all_errors_1:
-        collisions_1.append(0)
-        overruns_1.append(0)
-        invalid_schedule_1.append(0)
-        all_error_nums_1.append(0)
-        for thing in sim_1:
-            if "collided" in str(thing):
-                collisions_1[ctr] += 1
-            if "limit" in str(thing):
-                overruns_1[ctr] += 1
-            if "empty" in str(thing) or "violated" in str(thing):
-                invalid_schedule_1[ctr] += 1
-            all_error_nums_1[ctr] += 1
-        ctr += 1
+    error_types_1 = [len(all_errors_1),0,0,0]
+    error_types_2 = [len(all_errors_2),0,0,0]
 
-    collisions_2 = []
-    overruns_2 = []
-    invalid_schedule_2 = []
-    all_error_nums_2 = []
-    ctr = 0
 
-    for sim_2 in all_errors_2:
-        collisions_2.append(0)
-        overruns_2.append(0)
-        invalid_schedule_2.append(0)
-        all_error_nums_2.append(0)
-        for thing in sim_2:
-            if "collided" in str(thing):
-                collisions_2[ctr] += 1
-            if "limit" in str(thing):
-                overruns_2[ctr] += 1
-            if "empty" in str(thing) or "violated" in str(thing):
-                invalid_schedule_2[ctr] += 1
-            all_error_nums_2[ctr] += 1
-        ctr += 1
+    for error_message in all_errors_1:
+        if "collided" in str(error_message):
+            error_types_1[1] += 1
+        if "limit" in str(error_message):
+            error_types_1[3] += 1
+        if "empty" in str(error_message) or "violated" in str(error_message):
+            error_types_1[2] += 1
+
+    for error_message in all_errors_2:
+        if "collided" in str(error_message):
+            error_types_2[1] += 1
+        if "limit" in str(error_message):
+            error_types_2[3] += 1
+        if "empty" in str(error_message) or "violated" in str(error_message):
+            error_types_2[2] += 1
 
     import matplotlib.pyplot as plt
     import numpy as np
-    types = ("simple", "simple-interrupt", "multi-robot")
+    types = ("Total Critically Faulted Simulations", "Collisions", "Scheduling Violation", "Overruns")
 
     x = np.arange(len(types))  # the label locations
-    width = 0.1  # the width of the bars
-    multiplier = 1
+    width = 0.25  # the width of the bars
+    multiplier = 0.5
 
     groups = {
-        "Number of Simulations": [500, 500, 500],
-
-        "Total Critically Faulted Simulations - Fault tolerant strategy enabled": all_error_nums_1,
-        "Total Critically Faulted Simulations - Fault tolerant strategy disabled": all_error_nums_2,
-
-        "Collisions - Fault tolerant strategy enabled": collisions_1,
-        "Collisions - Fault tolerant strategy disabled": collisions_2,
-
-        "Scheduling Violation - Fault tolerant strategy enabled": invalid_schedule_1,
-        "Scheduling Violation - Fault tolerant strategy disabled": invalid_schedule_2,
-
-        "Overruns - Fault tolerant strategy enabled": overruns_1,
-        "Overruns - Fault tolerant strategy disabled": overruns_2
+        "Fault tolerant strategy enabled": error_types_1,
+        "Fault tolerant strategy disabled": error_types_2
     }
 
     colors = [
-        (0.0, 0.0, 1.0, 1.0),
-
-        (1.0, 0.0, 0.0, 0.5),
-        (1.0, 0.0, 0.0, 1.0),
-
-        (1.0, 1.0, 0.0, 0.5),
-        (1.0, 1.0, 0.0, 1.0),
-
-        (0.0, 1.0, 1.0, 0.5),
-        (0.0, 1.0, 1.0, 1.0),
-
-        (1.0, 0.0, 1.0, 0.5),
-        (1.0, 0.0, 1.0, 1.0)
+        (0.184, 0.404, 0.692, 1.0),
+        (0.749, 0.172, 0.137, 1.0),
     ]
 
-    fig = plt.figure(figsize=(20,8))
+    fig = plt.figure(figsize=(8,8))
     ax = fig.gca()
 
     color_ctr = 0
@@ -403,10 +341,11 @@ def run_fault_test():
 
     # Add some text for labels, title and custom x-axis tick labels, etc.
     ax.set_ylabel('Amount')
-    ax.set_title('Fault tolerant strategy')
+    ax.set_title('Fault tolerant strategy for scheduling mode %s, total amount of simulations for each mode n=%s'
+                 % (scheduling_mode, num_sims))
     ax.set_xticks(x + width, types)
     ax.legend(loc='upper left', ncols=3)
-    ax.set_ylim(0, 600)
+    ax.set_ylim(0, error_types_2[0] + 50)
     plt.show()
 
 
@@ -435,21 +374,25 @@ if __name__ == "__main__":
     faulty = [0.0001, 0.001, 0.001, 0.001]
     perfect_scenario = [0, 0, 0, 0]
 
-    #run_fault_test()
-    #run_simulation_performance_test("multi-robot", 10, 25, 2000)
+    #run_fault_test("multi-robot")
+    run_simulation_performance_test("multi-robot-genetic", 10, 25, 2000)
 
     #run_fault_test()
     #random.seed(23)
 
-    #sim = Simulation(1, "whouse2.txt", 10, 3, "simple-interrupt",
-    #                perfect_scenario, True, 500)
+    #random.seed(10)
+    #sim = Simulation(100, "whouse2.txt", 10, 3, "multi-robot-genetic",
+    #                perfect_scenario, True, 1000)
 
-    sim = Simulation(500, "whouse2.txt", 10, 3, "multi-robot",
-                    perfect_scenario, True, 500)
+    #sim.run_simulation(True)
+    #random.seed(14)
+    #sim = Simulation(100, "whouse2.txt", 10, 3, "multi-robot",
+    #                faulty, True, 500)
 
-    sim.run_simulation(True)
-    sim.print_error_info()
-
+    #sim.run_simulation(False)
+    #sim.print_error_info()
+    #sim.print_steps_taken()
+    #sim.print_priority_info()
 
 
 

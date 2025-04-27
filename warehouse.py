@@ -74,28 +74,30 @@ class Warehouse:
 
             # Robots should only take action if they are not waiting
             if robot_obj.get_wait_steps() == 0:
-                print("Updating robot %s" % robot_obj.get_name())
-                if robot_obj.battery_faulted_critical:
-                    print("FAULTED")
-                print("At (%s %s)" % (robot_obj.get_position()[0], robot_obj.get_position()[1]))
-                print("Has target %s" % robot_obj.get_target())
+                #print("Updating robot %s" % robot_obj.get_name())
+                #print("At (%s %s)" % (robot_obj.get_position()[0], robot_obj.get_position()[1]))
+                #print("Has target %s" % robot_obj.get_target())
                 self.decide_robot_action(robot_obj)
             else:
-                print("Robot %s waited a step" % robot_obj.get_name())
+                #print("Robot %s waited a step" % robot_obj.get_name())
                 should_schedule = robot_obj.decrement_wait_steps()
                 if should_schedule:
                     self._scheduler.schedule(self._total_steps)
-            self.print_layout_simple()
+            #self.print_layout_simple()
+            #print(self._scheduler._orders_active)
+            #print(self._scheduler._orders_backlog)
+            #for value in self._order_stations.values():
+                #print(value.report_inventory())
 
         # ============================================ADD DYNAMIC ORDERS==============================================
         new_order = self._order_manager.possibly_introduce_dynamic_order(self._total_steps)
         if new_order is not None:
-            print("INTRODUCING A NEW ORDER ON STEP %s" % self._total_steps)
+            #print("INTRODUCING A NEW ORDER ON STEP %s" % self._total_steps)
             self._scheduler.add_order(new_order, self._total_steps)
 
         # ============================================DISPLAY LAYOUT==================================================
         #self.print_layout_simple()
-        print("GRERG")
+        #print("GRERG")
         #print("===============================================================================")
         return self._scheduler.are_all_orders_complete() and self.get_total_steps() > self._dynamic_deadline + 1
 
@@ -117,9 +119,10 @@ class Warehouse:
 
         if robot_obj.get_target() is not None:
             # If the robot is traveling towards its home, it should still be treated as idle and available to schedule
-            if type(robot_obj.get_target()) is robothome.RobotHome and not robot_obj.battery_faulted:
+            if (type(robot_obj.get_target()) is robothome.RobotHome and not
+                    robot_obj.battery_faulted and not robot_obj.gone_home_to_clear_inv):
                 # Check if the scheduler has a new job for this robot yet
-                print("Robot is waiting for direction, while travelling home")
+                #print("Robot is waiting for direction, while travelling home")
                 self._scheduler.direct_robot(robot_obj)
                 if robot_obj.get_wait_steps() != 0:
                     return
@@ -127,14 +130,14 @@ class Warehouse:
             # If it didn't, it will keep moving towards its home
 
             if not robot_obj.is_at_target():
-                print("Robot is trying to move")
+                #print("Robot is trying to move")
                 self.move_robot_towards_astar_collision_detect(robot_obj)
             else:
-                print("Robot is interacting with target")
+                #print("Robot is interacting with target")
                 robot_obj.interact_with_target()
 
         else:
-            print("Robot is waiting for direction")
+            #print("Robot is waiting for direction")
             self._scheduler.direct_robot(robot_obj)
 
     def apply_fault_actions(self, robot_obj: robot.Robot, fault_list):
@@ -215,20 +218,20 @@ class Warehouse:
             return
 
         if potential_next_position is None:
-            print("Robot %s couldnt pathfind to its target" % robot_obj.get_name())
+            #print("Robot %s couldnt pathfind to its target" % robot_obj.get_name())
             self.attempt_resolve_deadlocks(robot_obj)
         else:
             # If the robot has a movement path, but cant move because it was blocked
-            print("A robot %s couldnt move, as it was blocked" % robot_obj.get_name())
+            #print("A robot %s couldnt move, as it was blocked" % robot_obj.get_name())
             # Find the robot that is blocking this one from moving
             blocking_robot = self.get_robot_at(potential_next_position[0], potential_next_position[1])
             if blocking_robot is None:
                 return
 
             if len(blocking_robot.get_movement_path()) == 0:
-                print("doing nothing, waiting for the blocking robot to be assigned some movement")
+                #print("doing nothing, waiting for the blocking robot to be assigned some movement")
                 if robot_obj.get_steps_halted() > 2:
-                    print("the blocking robot took to long, looking for an alternate path")
+                    #print("the blocking robot took to long, looking for an alternate path")
                     # It should take a minimum of two steps to be assigned any movement from not having any
                     # If this robot has waited that long, it should look for an alternate path
                     robot_obj.set_movement_path(self.compute_robot_astar_path(robot_obj))
@@ -245,10 +248,10 @@ class Warehouse:
             if blocking_robot_next_position != robot_obj.get_position():
                 if random.random() > 0.1:
                     self.move_robot_break_deadlock(robot_obj, [robot_obj])
-                else:
-                    print("doing nothing, waiting for the blocking robot to move as it will get out the way")
+                #else:
+                    #print("doing nothing, waiting for the blocking robot to move as it will get out the way")
             else:
-                print("ATTEMPTING TO RESOLVE DEADLOCK")
+                #print("ATTEMPTING TO RESOLVE DEADLOCK")
                 robots_by_prio = reversed(sorted([robot_obj, blocking_robot], key=lambda robot2: robot2.get_prio()))
                 is_horizontal = (blocking_robot.get_position()[0] - robot_obj.get_position()[0]) != 0
                 self.move_robot_break_deadlock(robot_obj, robots_by_prio, is_horizontal)

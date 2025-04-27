@@ -13,6 +13,8 @@ class InventoryEntity:
         self.last_item_dep = math.inf
         self._max_inv = max_inventory_size
         self._amount_items_transfer_next_time = None
+
+        # This is used by the genetic algorithm to stop the simplified simulator from transmitting
         self._should_transmit = is_simulation_obj
 
     def add_item_to_inventory(self, item_to_add: item.Item):
@@ -77,8 +79,6 @@ class InventoryEntity:
     def receive_inventory(self, items):
         for itm in items:
             self.add_item_to_inventory(itm)
-
-
 
     # For each item in the inventory
     # The dependency number must be smaller than any item previously

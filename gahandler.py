@@ -90,7 +90,7 @@ def fitness_func(ga_instance, solution, solution_idx):
     solution_decoded = []
     for int_gene in solution:
         decoded = decode_utf8_int_to_string(int_gene)
-        if decoded not in handler.get_all_string_genes():
+        if decoded not in handler.get_all_string_genes() and "robot" not in decoded:
             raise customexceptions.SimulationError("Invalid gene in solution %s" % decoded)
         solution_decoded.append(decoded)
 
@@ -231,6 +231,7 @@ def fitness_func(ga_instance, solution, solution_idx):
                 new_accumulated_dist = 1
 
             robots_distance_accumulated[robot_id] += new_accumulated_dist
+
         steps_executed_succesfully += 1
         #print("%s|%s || %s|%s "%(steps_executed_succesfully, schedules_total_length, correct_pickups_so_far, order_total_items))
     if not success:

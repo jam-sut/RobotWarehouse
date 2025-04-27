@@ -28,6 +28,7 @@ class Robot(entitywithinventory.InventoryEntity):
         self._goal_visit_flag = None
 
         self.battery_faulted = False
+        self.gone_home_to_clear_inv = False
 
         self.charge_time = 50
         self.apply_charge_wait_upon_reaching_home = False
@@ -147,11 +148,11 @@ class Robot(entitywithinventory.InventoryEntity):
             return []
         if random.random() < self._battery_critical_fault_rate:
             self.battery_faulted_critical = True
-            print("FAULT %s BATTERY CRITICAL" % self._name)
+            #print("FAULT %s BATTERY CRITICAL" % self._name)
             f0 = True
         else:
             if random.random() < self._battery_low_fault_rate and not self.battery_faulted:
-                print("FAULT %s BATTERY RECHARGE" % self._name)
+                #print("FAULT %s BATTERY RECHARGE" % self._name)
                 self.battery_faulted = True
                 f1 = True
             if random.random() < self._actuator_fault_rate and not self.actuators_faulted:
