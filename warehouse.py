@@ -97,7 +97,6 @@ class Warehouse:
 
         # ============================================DISPLAY LAYOUT==================================================
         #self.print_layout_simple()
-        #print("GRERG")
         #print("===============================================================================")
         return self._scheduler.are_all_orders_complete() and self.get_total_steps() > self._dynamic_deadline + 1
 

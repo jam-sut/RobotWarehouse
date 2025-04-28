@@ -25,6 +25,7 @@ class Scheduler:
         self._order_to_amount_robots_assigned = {}
 
         self._schedule_mode = schedule_mode
+        self._ga_attempts = [0,0,0,0,0]
 
         if schedule_mode not in ["simple", "simple-interrupt", "multi-robot", "multi-robot-genetic"]:
             raise customexceptions.SimulationError("Invalid scheduling mode provided")
@@ -73,6 +74,9 @@ class Scheduler:
             self._all_genes.append(goal_name)
 
         self.recalculate_distances()
+
+    def get_ga_attempts(self):
+        return self._ga_attempts
 
     def recalculate_distances(self):
         for robot_name, robot_obj in self._robots.items():
@@ -399,6 +403,7 @@ class Scheduler:
             while try_counter < 5:
                 fitness, original_schedule = self.run_genetic_algorithm(order_obj, fault_tolerant_mode)
                 if fitness > 1:
+                    self._ga_attempts[try_counter] += 1
                     break
                 else:
                     #print("That solution wasnt good enough")

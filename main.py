@@ -10,6 +10,8 @@ import random
 import math
 import matplotlib
 
+from operator import add
+
 class Simulation:
     def __init__(self, num_sims:int, whouse:str, num_items:int, inv_size:int, schedule_mode:str, fault_rates, fault_mode, step_limit, side_len = None):
         self._side_len = side_len
@@ -27,13 +29,14 @@ class Simulation:
         self.step_amounts = []
         self.step_times = []
         self.error_strings = []
+        self.ga_attempts = [0,0,0,0,0]
 
         self.order_prio = []
         self.order_prio_sorted_completion_time_lists = [[], [], [], [], []]
 
         self.order_completion_steps_by_num_robots = {}
 
-    def run_simulation(self, fault_on_error=False):
+    def run_simulation(self, reraise_error, slow_for_transmit):
         for sim_num in range(self._num_sims):
             print("Starting sim %s" % sim_num)
             sim_step_times = []
@@ -42,18 +45,20 @@ class Simulation:
                                            self._schedule_mode, self._fault_rates, self._fault_mode, self._step_limit)
                 keep_step = True
                 while keep_step:
+                    if slow_for_transmit:
+                        time.sleep(0.2)
                     before_step_time = time.perf_counter_ns()
                     keep_step = not simu.step()
                     elapsed_time_between = time.perf_counter_ns() - before_step_time
                     sim_step_times.append(elapsed_time_between)
 
             except customexceptions.SimulationError as err:
-                if fault_on_error:
+                if reraise_error:
                     raise err
                 self.error_strings.append(err)
                 continue
             except Exception as err:
-                if fault_on_error:
+                if reraise_error:
                     raise err
                 continue
 
@@ -61,6 +66,7 @@ class Simulation:
 
             self.step_amounts.append(simu.get_total_steps())
             self.order_prio = self.order_prio + simu.get_order_manager().return_mapping_prio_to_completion_times()
+            self.ga_attempts = list(map(add, simu.get_scheduler().get_ga_attempts(), self.ga_attempts))
 
             orders_to_amount_robots = simu.get_scheduler().get_order_to_amount_of_robots_assigned()
             order_start_times = simu.get_order_manager().get_order_start_work_times()
@@ -200,7 +206,7 @@ def run_simulation_performance_test(scheduling_mode:str, robots_max:int, size_ma
             file_name = gen_nxn_warehouse(j, i)
             sim_1 = Simulation(10, file_name, 12, 3, scheduling_mode,
                      [0, 0, 0, 0], True, step_limit, i)
-            sim_1.run_simulation()
+            sim_1.run_simulation(False, False)
             results.append(sim_1.print_step_time_info())
             by_sim_size[ctr].append(sim_1.print_step_time_info())
         ctr += 1
@@ -238,21 +244,25 @@ def run_simulation_performance_test(scheduling_mode:str, robots_max:int, size_ma
     plt.show()
 
 
-def run_completion_time_test():
+def run_completion_time_test(fault_rates):
     sim = Simulation(500, "whouse2.txt", 10, 3, "simple",
-                     [0, 0, 0, 0], True, 500)
+                     fault_rates, True, 1000)
 
     sim_1 = Simulation(500, "whouse2.txt", 10, 3, "simple-interrupt",
-                       [0, 0, 0, 0], True, 500)
+                       fault_rates, True, 1000)
 
     sim_2 = Simulation(500, "whouse2.txt", 10, 3, "multi-robot",
-                       [0, 0, 0, 0], True, 500)
+                       fault_rates, True, 1000)
 
-    sim.run_simulation()
-    sim_1.run_simulation()
-    sim_2.run_simulation()
+    sim_3 = Simulation(500, "whouse2.txt", 10, 3, "multi-robot-genetic",
+                       fault_rates, True, 1000)
 
-    steps = [sim.print_steps_taken(), sim_1.print_steps_taken(), sim_2.print_steps_taken()]
+    sim.run_simulation(False, False)
+    sim_1.run_simulation(False, False)
+    sim_2.run_simulation(False, False)
+    sim_3.run_simulation(False, False)
+
+    steps = [sim.print_steps_taken(), sim_1.print_steps_taken(), sim_2.print_steps_taken(), sim_3.print_steps_taken()]
 
     import matplotlib.pyplot as plt
     import numpy as np
@@ -260,28 +270,26 @@ def run_completion_time_test():
     fig = plt.figure(figsize=(8, 8))
     plt.boxplot(steps)
     ax = plt.gca()
-    plt.title("Amount of time to complete simulation for each simulation type")
-    plt.xticks([1, 2, 3], ['simple', 'simple-interrupt', 'multi-robot'])
-    ax.set_xlabel("Simulation type")
+    plt.title("Amount of time steps to complete simulation for each scheduling mode")
+    plt.xticks([1, 2, 3, 4], ['simple', 'simple-interrupt', 'multi-robot', 'multi-robot-genetic'])
+    ax.set_xlabel("Scheduling mode")
     ax.set_ylabel("Amount of steps")
-
     plt.show()
 
 def run_fault_test(scheduling_mode):
     faulty = [0.0001, 0.001, 0.001, 0.001]
     num_sims = 250
 
-    random.seed(10)
     sim = Simulation(num_sims, "whouse2.txt", 10, 3, scheduling_mode,
-                     faulty, True, 500)
+                     faulty, True, 1500)
 
     sim_1 = Simulation(num_sims, "whouse2.txt", 10, 3, scheduling_mode,
-                       faulty, False, 500)
+                       faulty, False, 1500)
 
 
 
-    sim.run_simulation()
-    sim_1.run_simulation()
+    sim.run_simulation(False, False)
+    sim_1.run_simulation(False, False)
 
 
     all_errors_1 = sim.print_error_info()
@@ -340,7 +348,7 @@ def run_fault_test(scheduling_mode):
 
     # Add some text for labels, title and custom x-axis tick labels, etc.
     ax.set_ylabel('Amount')
-    ax.set_title('Fault tolerant strategy for scheduling mode %s, total amount of simulations for each mode n=%s'
+    ax.set_title('Fault tolerant strategy for scheduling mode %s, \ntotal amount of simulations for each mode n=%s,\nsimulation cutoff 1500 steps'
                  % (scheduling_mode, num_sims))
     ax.set_xticks(x + width, types)
     ax.legend(loc='upper left', ncols=3)
@@ -350,52 +358,20 @@ def run_fault_test(scheduling_mode):
 
 
 
-
-
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-t", action="store_true", help="Whether or not to transmit UDP"
                                                                                   " packets.")
     args = parser.parse_args()
-
-
     os.environ["ROBOTSIM_TRANSMIT"] = str(args.t)
-    step_times_1 = []
-    step_amounts_1 = []
-    orders_1 = []
-    errors = []
-
-    faulted_sims = 0
     faulty = [0.0001, 0.001, 0.001, 0.001]
     perfect_scenario = [0, 0, 0, 0]
 
-    #run_fault_test("multi-robot")
-    run_simulation_performance_test("multi-robot-genetic", 10, 25, 2000)
+    sim = Simulation(1, "whouse2.txt", 10, 3, "simple-interrupt",
+                     perfect_scenario, True, 1000)
 
-    #run_fault_test()
-    #random.seed(23)
-
-    #random.seed(10)
-    #sim = Simulation(100, "whouse2.txt", 10, 3, "multi-robot-genetic",
-    #                perfect_scenario, True, 1000)
-
-    #sim.run_simulation(True)
-    #random.seed(14)
-    #sim = Simulation(100, "whouse2.txt", 10, 3, "multi-robot",
-    #                faulty, True, 500)
-
-    #sim.run_simulation(False)
-    #sim.print_error_info()
-    #sim.print_steps_taken()
-    #sim.print_priority_info()
-
-
-
-    #sim.print_priority_info()
-
-    #sim.print_error_info()
+    sim.run_simulation(True,True)
+    sim.print_priority_info()
 
 
 
